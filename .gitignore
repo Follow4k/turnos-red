@@ -1,0 +1,17 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno (nunca se sube el real, solo .env.example)
+.env
+
+# Salida de compilación de TypeScript
+dist/
+
+# Logs
+npm-debug.log*
+*.log
+
+# Editor / SO
+.vscode/*
+!.vscode/launch.json
+.DS_Store

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>TurnosRed — Cliente de prueba Socket.IO</title>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 40px auto; }
+    #log { background: #111; color: #0f0; padding: 12px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 13px; }
+    .entry { margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>TurnosRed — eventos en tiempo real</h1>
+  <p>
+    Esta página se conecta al servidor por Socket.IO y muestra en vivo los eventos
+    <code>turno:nuevo</code>, <code>turno:actualizado</code> y <code>turno:eliminado</code>
+    a medida que se producen, sin recargar ni hacer polling. Útil como evidencia
+    para el informe técnico.
+  </p>
+  <div id="log"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const log = document.getElementById("log");
+    const socket = io();
+
+    function agregarLinea(texto) {
+      const linea = document.createElement("div");
+      linea.className = "entry";
+      linea.textContent = `[${new Date().toLocaleTimeString()}] ${texto}`;
+      log.prepend(linea);
+    }
+
+    socket.on("connect", () => agregarLinea(`Conectado (id=${socket.id})`));
+    socket.on("disconnect", () => agregarLinea("Desconectado"));
+    socket.on("turno:nuevo", (turno) => agregarLinea(`turno:nuevo -> ${JSON.stringify(turno)}`));
+    socket.on("turno:actualizado", (turno) => agregarLinea(`turno:actualizado -> ${JSON.stringify(turno)}`));
+    socket.on("turno:eliminado", (payload) => agregarLinea(`turno:eliminado -> ${JSON.stringify(payload)}`));
+  </script>
+</body>
+</html>
