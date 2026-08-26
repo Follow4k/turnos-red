@@ -1,4 +1,5 @@
 # TurnosRed
+Este es un proyecto de mi universidad que voy a ir puliendo en mi dia a dia, puede poseer varios errores.
 
 Backend para centralizar la gestión de turnos de varios centros de atención
 ambulatoria (clínica médica, pediatría, odontología y nutrición). Cada sede
