@@ -1,5 +1,5 @@
 # TurnosRed
-Este es un proyecto de mi universidad que voy a ir puliendo en mi dia a dia, puede poseer varios errores. 2026
+Este es un proyecto de mi universidad que voy a ir puliendo en mi dia a dia, puede poseer varios errores. Avanzo lento
 Backend para centralizar la gestión de turnos de varios centros de atención
 ambulatoria (clínica médica, pediatría, odontología y nutrición). Cada sede
 envía sus registros en archivos JSON con formatos inconsistentes; esta API
