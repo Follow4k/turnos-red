@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { turnoEventBus } from "../events/eventBus.js";
 import type { Turno, TurnoInput } from "../models/turno.model.js";
-import { normalizarTurnos } from "../utils/normalize.js";
+import { normalizarClave, normalizarFecha, normalizarTurnos } from "../utils/normalize.js";
 import { leerTurnosCrudos } from "./file.service.js";
 
 /**
@@ -26,8 +26,35 @@ export async function inicializarTurnos(): Promise<void> {
   });
 }
 
-export function listarTurnos(): Turno[] {
-  return turnos;
+export interface FiltrosTurno {
+  especialidad?: string;
+  /** Acepta AAAA-MM-DD o DD/MM/AAAA; se normaliza a ISO antes de comparar. */
+  fecha?: string;
+  medicoId?: number;
+}
+
+/**
+ * Lista turnos aplicando filtros opcionales por especialidad, fecha o
+ * médico asignado. Los filtros se combinan con AND: si se pasa más de uno,
+ * el turno debe cumplir todos para aparecer en el resultado.
+ */
+export function listarTurnos(filtros: FiltrosTurno = {}): Turno[] {
+  return turnos.filter((turno) => {
+    if (filtros.especialidad && normalizarClave(turno.especialidad) !== normalizarClave(filtros.especialidad)) {
+      return false;
+    }
+
+    if (filtros.fecha) {
+      const fechaFiltroIso = normalizarFecha(filtros.fecha);
+      if (fechaFiltroIso === null || turno.fecha !== fechaFiltroIso) return false;
+    }
+
+    if (filtros.medicoId !== undefined && turno.medicoId !== filtros.medicoId) {
+      return false;
+    }
+
+    return true;
+  });
 }
 
 export function obtenerTurnoPorId(id: number): Turno | undefined {

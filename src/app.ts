@@ -1,8 +1,10 @@
 import cors from "cors";
-import express, { type Application, type NextFunction, type Request, type Response } from "express";
+import express, { type Application, type Request, type Response } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { env } from "./config/env.js";
+import { errorHandler, notFoundHandler } from "./middlewares/error.middleware.js";
+import { medicoRouter } from "./routes/medico.routes.js";
 import { turnoRouter } from "./routes/turno.routes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,22 +20,17 @@ export function crearApp(): Application {
   app.use(express.static(path.join(__dirname, "..", "public")));
 
   app.get("/", (_req: Request, res: Response) => {
-    res.status(200).json({ mensaje: "API TurnosRed activa", docs: "GET /turnos" });
+    res.status(200).json({ mensaje: "API TurnosRed activa", docs: "GET /turnos, GET /medicos" });
   });
 
   app.use(turnoRouter);
+  app.use(medicoRouter);
 
-  // 404 para cualquier ruta no definida.
-  app.use((_req: Request, res: Response) => {
-    res.status(404).json({ error: "Recurso no encontrado" });
-  });
+  // 404 uniforme para cualquier ruta no definida.
+  app.use(notFoundHandler);
 
-  // Manejador de errores centralizado.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error(err);
-    res.status(500).json({ error: "Error interno del servidor" });
-  });
+  // Manejador de errores centralizado (formato estándar {status, message, code, details}).
+  app.use(errorHandler);
 
   return app;
 }

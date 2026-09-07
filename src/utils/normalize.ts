@@ -1,19 +1,33 @@
 import type { Especialidad, Turno, TurnoCrudo } from "../models/turno.model.js";
 
-const ESPECIALIDADES: Record<string, Especialidad> = {
-  "CLINICA MEDICA": "CLINICA_MEDICA",
-  "CLÍNICA MÉDICA": "CLINICA_MEDICA",
-  PEDIATRIA: "PEDIATRIA",
-  "PEDIATRÍA": "PEDIATRIA",
-  ODONTOLOGIA: "ODONTOLOGIA",
-  "ODONTOLOGÍA": "ODONTOLOGIA",
-  NUTRICION: "NUTRICION",
-  "NUTRICIÓN": "NUTRICION",
+const MAPA_ESPECIALIDADES: Record<string, Especialidad> = {
+  "CLINICA MEDICA": "Clínica médica",
+  "CLÍNICA MÉDICA": "Clínica médica",
+  PEDIATRIA: "Pediatría",
+  "PEDIATRÍA": "Pediatría",
+  ODONTOLOGIA: "Odontología",
+  "ODONTOLOGÍA": "Odontología",
+  NUTRICION: "Nutrición",
+  "NUTRICIÓN": "Nutrición",
 };
 
 /** Quita espacios sobrantes y colapsa espacios internos múltiples. */
 function limpiarTexto(valor: string): string {
   return valor.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Normaliza una clave de comparación: quita tildes, colapsa espacios y
+ * pasa a mayúsculas. Se usa para comparar especialidades ingresadas por
+ * query params (ej. "Pediatria", sin tilde) contra los valores de dominio
+ * en Title Case (ej. "Pediatría"), sin exigirle al usuario que escriba la
+ * tilde exacta.
+ */
+export function normalizarClave(valor: string): string {
+  return limpiarTexto(valor)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
 }
 
 /** Convierte "10.00", "9:30", "8.15" a formato 24hs "HH:mm". */
@@ -27,7 +41,7 @@ function normalizarHora(valor: string): string | null {
 }
 
 /** Acepta "14/08/2026" (DD/MM/AAAA) o "2026-08-15" (ISO) y devuelve siempre ISO. */
-function normalizarFecha(valor: string): string | null {
+export function normalizarFecha(valor: string): string | null {
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor.trim());
   if (iso) return valor.trim();
 
@@ -47,7 +61,7 @@ function normalizarConfirmado(valor: string | boolean | number): boolean {
 }
 
 function normalizarEspecialidad(valor: string): Especialidad | null {
-  return ESPECIALIDADES[limpiarTexto(valor).toUpperCase()] ?? null;
+  return MAPA_ESPECIALIDADES[limpiarTexto(valor).toUpperCase()] ?? null;
 }
 
 /** Valida que el id resultante sea un entero positivo válido. */

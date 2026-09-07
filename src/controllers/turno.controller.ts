@@ -1,105 +1,93 @@
-import type { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import type { TurnoInput } from "../models/turno.model.js";
+import * as medicoService from "../services/medico.service.js";
 import * as turnoService from "../services/turno.service.js";
+import type { FiltrosTurno } from "../services/turno.service.js";
+import { AppError } from "../utils/AppError.js";
+import { parseId } from "../utils/parseId.js";
 
-function parseId(param: string): number | null {
-  const id = Number(param);
-  return Number.isInteger(id) && id > 0 ? id : null;
-}
-
-/** Validación mínima del body para creación/actualización de un turno. */
-function esTurnoInputValido(body: unknown): body is TurnoInput {
-  if (typeof body !== "object" || body === null) return false;
-  const b = body as Record<string, unknown>;
-  return (
-    typeof b.paciente === "string" &&
-    typeof b.documento === "string" &&
-    typeof b.especialidad === "string" &&
-    typeof b.fecha === "string" &&
-    typeof b.hora === "string" &&
-    typeof b.confirmado === "boolean"
-  );
-}
-
-export function getTurnos(_req: Request, res: Response): void {
-  try {
-    const turnos = turnoService.listarTurnos();
-    res.status(200).json(turnos);
-  } catch (error) {
-    res.status(500).json({ error: "Error interno al listar los turnos", detalle: String(error) });
+/** Lanza un 400 si se referencia un medicoId que no existe en /medicos. */
+function validarMedicoReferenciado(medicoId: number | undefined): void {
+  if (medicoId !== undefined && !medicoService.existeMedico(medicoId)) {
+    throw new AppError(400, `No existe un médico con id ${medicoId}`, "MEDICO_INEXISTENTE");
   }
 }
 
-export function getTurnoPorId(req: Request, res: Response): void {
+export function getTurnos(req: Request, res: Response, next: NextFunction): void {
+  try {
+    const filtros = req.query as FiltrosTurno;
+    const turnos = turnoService.listarTurnos(filtros);
+    res.status(200).json(turnos);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export function getTurnoPorId(req: Request, res: Response, next: NextFunction): void {
   try {
     const id = parseId(req.params.id);
     if (id === null) {
-      res.status(400).json({ error: "El id debe ser un número entero positivo" });
-      return;
+      throw new AppError(400, "El id debe ser un número entero positivo", "ID_INVALIDO");
     }
 
     const turno = turnoService.obtenerTurnoPorId(id);
     if (!turno) {
-      res.status(404).json({ error: `No existe un turno con id ${id}` });
-      return;
+      throw new AppError(404, `No existe un turno con id ${id}`, "TURNO_NO_ENCONTRADO");
     }
 
     res.status(200).json(turno);
   } catch (error) {
-    res.status(500).json({ error: "Error interno al buscar el turno", detalle: String(error) });
+    next(error);
   }
 }
 
-export function postTurno(req: Request, res: Response): void {
+export function postTurno(req: Request, res: Response, next: NextFunction): void {
   try {
-    if (!esTurnoInputValido(req.body)) {
-      res.status(400).json({ error: "Body inválido: faltan campos obligatorios o tienen tipo incorrecto" });
-      return;
-    }
+    const datos = req.body as TurnoInput;
+    validarMedicoReferenciado(datos.medicoId);
 
-    const nuevoTurno = turnoService.crearTurno(req.body);
+    const nuevoTurno = turnoService.crearTurno(datos);
     res.status(201).json(nuevoTurno);
   } catch (error) {
-    res.status(500).json({ error: "Error interno al crear el turno", detalle: String(error) });
+    next(error);
   }
 }
 
-export function putTurno(req: Request, res: Response): void {
+export function putTurno(req: Request, res: Response, next: NextFunction): void {
   try {
     const id = parseId(req.params.id);
     if (id === null) {
-      res.status(400).json({ error: "El id debe ser un número entero positivo" });
-      return;
+      throw new AppError(400, "El id debe ser un número entero positivo", "ID_INVALIDO");
     }
 
-    const turnoActualizado = turnoService.actualizarTurno(id, req.body as Partial<TurnoInput>);
+    const datos = req.body as Partial<TurnoInput>;
+    validarMedicoReferenciado(datos.medicoId);
+
+    const turnoActualizado = turnoService.actualizarTurno(id, datos);
     if (!turnoActualizado) {
-      res.status(404).json({ error: `No existe un turno con id ${id}` });
-      return;
+      throw new AppError(404, `No existe un turno con id ${id}`, "TURNO_NO_ENCONTRADO");
     }
 
     res.status(200).json(turnoActualizado);
   } catch (error) {
-    res.status(500).json({ error: "Error interno al actualizar el turno", detalle: String(error) });
+    next(error);
   }
 }
 
-export function deleteTurno(req: Request, res: Response): void {
+export function deleteTurno(req: Request, res: Response, next: NextFunction): void {
   try {
     const id = parseId(req.params.id);
     if (id === null) {
-      res.status(400).json({ error: "El id debe ser un número entero positivo" });
-      return;
+      throw new AppError(400, "El id debe ser un número entero positivo", "ID_INVALIDO");
     }
 
     const eliminado = turnoService.eliminarTurno(id);
     if (!eliminado) {
-      res.status(404).json({ error: `No existe un turno con id ${id}` });
-      return;
+      throw new AppError(404, `No existe un turno con id ${id}`, "TURNO_NO_ENCONTRADO");
     }
 
-    res.status(200).json({ mensaje: `Turno ${id} eliminado correctamente` });
+    res.status(204).send();
   } catch (error) {
-    res.status(500).json({ error: "Error interno al eliminar el turno", detalle: String(error) });
+    next(error);
   }
 }

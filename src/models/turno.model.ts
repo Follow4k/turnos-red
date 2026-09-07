@@ -13,10 +13,16 @@ export interface TurnoCrudo {
   hora: string;
   confirmado: string | boolean | number;
   observaciones?: string;
+  medicoId?: string | number;
 }
 
-/** Especialidades válidas dentro del dominio de la aplicación. */
-export type Especialidad = "CLINICA_MEDICA" | "PEDIATRIA" | "ODONTOLOGIA" | "NUTRICION";
+/**
+ * Especialidades válidas dentro del dominio de la aplicación, en formato
+ * Title Case (así se exponen y validan hacia afuera con Zod).
+ */
+export const ESPECIALIDADES = ["Clínica médica", "Pediatría", "Odontología", "Nutrición"] as const;
+
+export type Especialidad = (typeof ESPECIALIDADES)[number];
 
 /**
  * Registro ya normalizado y validado, con los tipos que espera el resto
@@ -33,6 +39,8 @@ export interface Turno {
   hora: string;
   confirmado: boolean;
   observaciones?: string;
+  /** Id del Médico asignado a este turno (recurso /medicos). Opcional. */
+  medicoId?: number;
 }
 
 /** Forma del body esperado al crear un turno vía POST /turnos. */
