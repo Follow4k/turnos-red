@@ -257,6 +257,3 @@ En `postman/turnos-red.postman_collection.json`:
 | Filtros por query params | Claude (Anthropic) | "Implementá filtros por especialidad/fecha/medicoId en GET /turnos y por especialidad/disponible en GET /medicos, sin agregar endpoints nuevos." | Lógica de filtrado en `turno.service.ts` y `medico.service.ts`, más `normalizarClave()` para comparar especialidades sin tildes. | *(completar tras revisar)*. |
 | Colección de Postman | Claude (Anthropic) | "Generá la colección de Postman (`turnos-red.postman_collection.json`) con variables de entorno, tests automáticos, casos Happy Path/Bad Request/Not Found y ejemplos guardados para Mock Server." | Colección con 19 requests entre `Turnos` y `Medicos`, variables dinámicas y ejemplos guardados. | *(completar tras correrla en tu Postman: capturas reales van en el documento de evidencia)*. |
 
-> **Nota:** completá la columna "Ajuste manual aplicado" con lo que realmente
-> hayas modificado después de revisar y ejecutar el código — es parte de lo
-> que pide la consigna y demuestra que no solo copiaste la salida de la IA.
