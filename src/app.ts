@@ -1,9 +1,10 @@
 import cors from "cors";
-import express, { type Application, type Request, type Response } from "express";
+import express, { type Application } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { env } from "./config/env.js";
-import { errorHandler, notFoundHandler } from "./middlewares/error.middleware.js";
+import { getBienvenida, manejarRutaNoEncontrada } from "./controllers/general.controller.js";
+import { errorHandler } from "./middlewares/error.middleware.js";
 import { medicoRouter } from "./routes/medico.routes.js";
 import { turnoRouter } from "./routes/turno.routes.js";
 
@@ -19,17 +20,17 @@ export function crearApp(): Application {
   // la página (ver consigna 10 / evidencia del informe técnico).
   app.use(express.static(path.join(__dirname, "..", "public")));
 
-  app.get("/", (_req: Request, res: Response) => {
-    res.status(200).json({ mensaje: "API TurnosRed activa", docs: "GET /turnos, GET /medicos" });
-  });
+  app.get("/", getBienvenida);
 
   app.use(turnoRouter);
   app.use(medicoRouter);
 
-  // 404 uniforme para cualquier ruta no definida.
-  app.use(notFoundHandler);
+  // Middleware para cualquier ruta no contemplada por la aplicación (404),
+  // resuelto a través del controller general.
+  app.use(manejarRutaNoEncontrada);
 
-  // Manejador de errores centralizado (formato estándar {status, message, code, details}).
+  // Red de contención: errores que no se resolvieron dentro de un controller
+  // (ej. el middleware de validación de Zod).
   app.use(errorHandler);
 
   return app;

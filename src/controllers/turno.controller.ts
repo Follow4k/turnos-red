@@ -1,29 +1,33 @@
-import type { NextFunction, Request, Response } from "express";
+import type { Request, Response } from "express";
 import type { TurnoInput } from "../models/turno.model.js";
 import * as medicoService from "../services/medico.service.js";
 import * as turnoService from "../services/turno.service.js";
 import type { FiltrosTurno } from "../services/turno.service.js";
 import { AppError } from "../utils/AppError.js";
 import { parseId } from "../utils/parseId.js";
+import { construirCuerpoError, resolverStatus } from "../utils/responderError.js";
 
-/** Lanza un 400 si se referencia un medicoId que no existe en /medicos. */
+/** Lanza un error 400 si se referencia un medicoId que no existe en /medicos. */
 function validarMedicoReferenciado(medicoId: number | undefined): void {
   if (medicoId !== undefined && !medicoService.existeMedico(medicoId)) {
     throw new AppError(400, `No existe un médico con id ${medicoId}`, "MEDICO_INEXISTENTE");
   }
 }
 
-export function getTurnos(req: Request, res: Response, next: NextFunction): void {
+export async function getTurnos(req: Request, res: Response): Promise<Response> {
+  let status = 200;
   try {
     const filtros = req.query as FiltrosTurno;
     const turnos = turnoService.listarTurnos(filtros);
-    res.status(200).json(turnos);
+    return res.status(status).json(turnos);
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
 
-export function getTurnoPorId(req: Request, res: Response, next: NextFunction): void {
+export async function getTurnoPorId(req: Request, res: Response): Promise<Response> {
+  let status = 200;
   try {
     const id = parseId(req.params.id);
     if (id === null) {
@@ -35,25 +39,29 @@ export function getTurnoPorId(req: Request, res: Response, next: NextFunction): 
       throw new AppError(404, `No existe un turno con id ${id}`, "TURNO_NO_ENCONTRADO");
     }
 
-    res.status(200).json(turno);
+    return res.status(status).json(turno);
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
 
-export function postTurno(req: Request, res: Response, next: NextFunction): void {
+export async function postTurno(req: Request, res: Response): Promise<Response> {
+  let status = 201;
   try {
     const datos = req.body as TurnoInput;
     validarMedicoReferenciado(datos.medicoId);
 
     const nuevoTurno = turnoService.crearTurno(datos);
-    res.status(201).json(nuevoTurno);
+    return res.status(status).json(nuevoTurno);
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
 
-export function putTurno(req: Request, res: Response, next: NextFunction): void {
+export async function putTurno(req: Request, res: Response): Promise<Response> {
+  let status = 200;
   try {
     const id = parseId(req.params.id);
     if (id === null) {
@@ -68,13 +76,15 @@ export function putTurno(req: Request, res: Response, next: NextFunction): void 
       throw new AppError(404, `No existe un turno con id ${id}`, "TURNO_NO_ENCONTRADO");
     }
 
-    res.status(200).json(turnoActualizado);
+    return res.status(status).json(turnoActualizado);
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
 
-export function deleteTurno(req: Request, res: Response, next: NextFunction): void {
+export async function deleteTurno(req: Request, res: Response): Promise<Response> {
+  let status = 204;
   try {
     const id = parseId(req.params.id);
     if (id === null) {
@@ -86,8 +96,9 @@ export function deleteTurno(req: Request, res: Response, next: NextFunction): vo
       throw new AppError(404, `No existe un turno con id ${id}`, "TURNO_NO_ENCONTRADO");
     }
 
-    res.status(204).send();
+    return res.status(status).send();
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }

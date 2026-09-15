@@ -1,21 +1,25 @@
-import type { NextFunction, Request, Response } from "express";
+import type { Request, Response } from "express";
 import type { MedicoInput } from "../models/medico.model.js";
 import * as medicoService from "../services/medico.service.js";
 import type { FiltrosMedico } from "../services/medico.service.js";
 import { AppError } from "../utils/AppError.js";
 import { parseId } from "../utils/parseId.js";
+import { construirCuerpoError, resolverStatus } from "../utils/responderError.js";
 
-export function getMedicos(req: Request, res: Response, next: NextFunction): void {
+export async function getMedicos(req: Request, res: Response): Promise<Response> {
+  let status = 200;
   try {
     const filtros = req.query as FiltrosMedico;
     const medicos = medicoService.listarMedicos(filtros);
-    res.status(200).json(medicos);
+    return res.status(status).json(medicos);
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
 
-export function getMedicoPorId(req: Request, res: Response, next: NextFunction): void {
+export async function getMedicoPorId(req: Request, res: Response): Promise<Response> {
+  let status = 200;
   try {
     const id = parseId(req.params.id);
     if (id === null) {
@@ -27,23 +31,27 @@ export function getMedicoPorId(req: Request, res: Response, next: NextFunction):
       throw new AppError(404, `No existe un médico con id ${id}`, "MEDICO_NO_ENCONTRADO");
     }
 
-    res.status(200).json(medico);
+    return res.status(status).json(medico);
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
 
-export function postMedico(req: Request, res: Response, next: NextFunction): void {
+export async function postMedico(req: Request, res: Response): Promise<Response> {
+  let status = 201;
   try {
     const datos = req.body as MedicoInput;
     const nuevoMedico = medicoService.crearMedico(datos);
-    res.status(201).json(nuevoMedico);
+    return res.status(status).json(nuevoMedico);
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
 
-export function putMedico(req: Request, res: Response, next: NextFunction): void {
+export async function putMedico(req: Request, res: Response): Promise<Response> {
+  let status = 200;
   try {
     const id = parseId(req.params.id);
     if (id === null) {
@@ -55,13 +63,15 @@ export function putMedico(req: Request, res: Response, next: NextFunction): void
       throw new AppError(404, `No existe un médico con id ${id}`, "MEDICO_NO_ENCONTRADO");
     }
 
-    res.status(200).json(medicoActualizado);
+    return res.status(status).json(medicoActualizado);
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
 
-export function deleteMedico(req: Request, res: Response, next: NextFunction): void {
+export async function deleteMedico(req: Request, res: Response): Promise<Response> {
+  let status = 204;
   try {
     const id = parseId(req.params.id);
     if (id === null) {
@@ -73,8 +83,9 @@ export function deleteMedico(req: Request, res: Response, next: NextFunction): v
       throw new AppError(404, `No existe un médico con id ${id}`, "MEDICO_NO_ENCONTRADO");
     }
 
-    res.status(204).send();
+    return res.status(status).send();
   } catch (error) {
-    next(error);
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status));
   }
 }
