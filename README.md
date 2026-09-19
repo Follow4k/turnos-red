@@ -93,18 +93,20 @@ turnos-red/
     │   └── medico.schema.ts        # Schemas de Zod: creación, actualización y query params de Médico
     ├── middlewares/
     │   ├── validate.middleware.ts  # Middleware genérico que valida body/query contra un schema de Zod
-    │   └── error.middleware.ts       # 404 uniforme + manejador de errores centralizado
+    │   └── error.middleware.ts       # Red de contención: errores del middleware de Zod / no capturados
     ├── utils/
     │   ├── normalize.ts          # Normalización de datos crudos + comparación de texto sin tildes
     │   ├── AppError.ts             # Error de aplicación con status/code/details
-    │   └── parseId.ts               # Helper para parsear ids numéricos de la URL
+    │   ├── responderError.ts        # Helper para armar {status,message,code,details} dentro de cada controller
+    │   └── parseId.ts                # Helper para parsear ids numéricos de la URL
     ├── services/
     │   ├── file.service.ts        # Lectura async del archivo de turnos (fs/promises)
     │   ├── turno.service.ts        # Lógica de negocio de Turno (CRUD + filtros + eventos)
     │   └── medico.service.ts        # Lógica de negocio de Médico (CRUD + filtros)
     ├── controllers/
-    │   ├── turno.controller.ts     # Controladores REST de Turno (status codes + delega errores)
-    │   └── medico.controller.ts      # Controladores REST de Médico
+    │   ├── general.controller.ts    # Bienvenida (Hello World) y ruta no encontrada (404)
+    │   ├── turno.controller.ts       # Controladores async de Turno (try/catch + status + return)
+    │   └── medico.controller.ts        # Controladores async de Médico (try/catch + status + return)
     ├── routes/
     │   ├── turno.routes.ts          # Rutas /turnos (con validación de Zod)
     │   └── medico.routes.ts           # Rutas /medicos (con validación de Zod)
@@ -120,14 +122,70 @@ turnos-red/
 consola cuántos fueron aceptados y cuántos rechazados. Las rutas REST pasan
 primero por el middleware `validar()` (`validate.middleware.ts`), que corre
 el schema de Zod correspondiente sobre `body` o `query`; si falla, delega en
-el manejador de errores centralizado con un `400` y el detalle de qué campo
-falló. Si pasa, el controlador (`turno.controller.ts` / `medico.controller.ts`)
-llama al service correspondiente, que opera en memoria y devuelve el
-resultado con el código de estado adecuado. Cada creación, actualización o
-eliminación de un turno emite un evento interno (`turno:creado`,
-`turno:actualizado`, `turno:eliminado`) que `socket.ts` retransmite a todos
-los clientes conectados sin que necesiten hacer polling. Los médicos, al ser
-un recurso de soporte (catálogo), no emiten eventos por Socket.IO.
+`error.middleware.ts` con un `400` y el detalle de qué campo falló. Si pasa,
+el controller correspondiente (`turno.controller.ts` / `medico.controller.ts`
+/ `general.controller.ts`) llama al service correspondiente, que opera en
+memoria, y responde él mismo con el código de estado adecuado (ver sección
+siguiente). Cada creación, actualización o eliminación de un turno emite un
+evento interno (`turno:creado`, `turno:actualizado`, `turno:eliminado`) que
+`socket.ts` retransmite a todos los clientes conectados sin que necesiten
+hacer polling. Los médicos, al ser un recurso de soporte (catálogo), no
+emiten eventos por Socket.IO.
+
+## Arquitectura de los controllers
+
+Desde la Actividad 3, cada controller sigue siempre el mismo patrón:
+
+```ts
+export async function getTurnoPorId(req: Request, res: Response): Promise<Response> {
+  let status = 200;
+  try {
+    // 1. Validaciones previas: si algo no está bien, se lanza un AppError
+    //    (subclase de Error) con su propio mensaje y código de estado.
+    const id = parseId(req.params.id);
+    if (id === null) {
+      throw new AppError(400, "El id debe ser un número entero positivo", "ID_INVALIDO");
+    }
+
+    // 2. Lógica normal (camino feliz).
+    const turno = turnoService.obtenerTurnoPorId(id);
+    if (!turno) {
+      throw new AppError(404, `No existe un turno con id ${id}`, "TURNO_NO_ENCONTRADO");
+    }
+
+    return res.status(status).json(turno); // return explícito
+  } catch (error) {
+    // 3. status se reajusta acá según lo que se haya lanzado.
+    status = resolverStatus(error);
+    return res.status(status).json(construirCuerpoError(error, status)); // return explícito
+  }
+}
+```
+
+- **Función `async`** en todos los métodos exportados, aunque hoy la
+  persistencia sea en memoria (preparación para una futura base de datos).
+- **Variable `status` local** a cada función: arranca en el código feliz
+  (`200`, `201` o `204` según el endpoint) y se reasigna dentro del `catch`
+  según el error capturado.
+- **`throw new AppError(...)`** (subclase de `Error`) para cortar la
+  ejecución apenas una validación previa falla, en vez de seguir anidando
+  `if/else`.
+- **`return` explícito** en cada `res.status(status).json(...)` / `.send()`,
+  para evitar que el código siga ejecutándose después de responder.
+- **`try/catch` en cada controller**: la lógica de negocio y las
+  validaciones previas quedan adentro del `try`; el `catch` arma la
+  respuesta de error con `resolverStatus()` / `construirCuerpoError()`
+  (`utils/responderError.ts`), dos helpers chiquitos para no repetir el
+  mismo bloque de armado de JSON en los ~10 métodos de la API.
+- **Controller general** (`general.controller.ts`): agrupa el endpoint de
+  bienvenida (`GET /`) y el middleware de ruta no encontrada, siguiendo el
+  mismo patrón (`async`, `status` local, `return` explícito).
+
+`error.middleware.ts` sigue existiendo, pero ahora es solo una **red de
+contención**: atiende los errores que arma `validate.middleware.ts` (que
+corre *antes* de llegar a un controller) y cualquier excepción realmente
+inesperada — ya no es el camino normal para los errores de negocio, que
+ahora resuelve cada controller por sí mismo.
 
 ## Formato estándar de errores
 
@@ -152,66 +210,196 @@ con un `medicoId` que no existe), `ROUTE_NOT_FOUND` e
 
 ## Endpoints
 
+Todas las respuestas son JSON. Los endpoints de error siguen siempre el
+["Formato estándar de errores"](#formato-estándar-de-errores) descripto
+arriba — acá se documenta, por endpoint, cuáles de esos errores puede
+devolver y con qué `code`.
+
+### General
+
+#### `GET /`
+
+Endpoint de bienvenida / health-check informal de la API.
+
+- **Params / Query / Body:** ninguno.
+- **Respuesta exitosa — `200 OK`**
+  ```json
+  { "mensaje": "API TurnosRed activa", "docs": "GET /turnos, GET /medicos" }
+  ```
+
+#### Cualquier ruta no definida
+
+- **Respuesta — `404 Not Found`**
+  ```json
+  {
+    "status": 404,
+    "message": "No existe la ruta GET /esto-no-existe",
+    "code": "ROUTE_NOT_FOUND",
+    "details": []
+  }
+  ```
+
 ### Turno
 
-| Método   | Ruta            | Descripción                  | Códigos posibles       |
-|----------|-----------------|-------------------------------|--------------------------|
-| `GET`    | `/turnos`        | Lista turnos (admite filtros)  | `200`, `400`, `500`        |
-| `GET`    | `/turnos/:id`     | Obtiene un turno por id         | `200`, `400`, `404`, `500` |
-| `POST`   | `/turnos`         | Crea un nuevo turno              | `201`, `400`, `500`        |
-| `PUT`    | `/turnos/:id`      | Actualiza (parcial) un turno      | `200`, `400`, `404`, `500` |
-| `DELETE` | `/turnos/:id`       | Elimina un turno (sin body)         | `204`, `400`, `404`, `500` |
+#### `GET /turnos`
 
-**Filtros por query params** (se combinan con AND):
+Lista los turnos cargados. Sin query params devuelve todos; los filtros se
+combinan con AND.
 
-```
-GET /turnos?especialidad=Pediatria&fecha=14/08/2026
-GET /turnos?medicoId=1
-```
+- **Query params (todos opcionales):**
 
-`especialidad` no distingue mayúsculas/tildes (`Pediatria` matchea
-`Pediatría`). `fecha` acepta `AAAA-MM-DD` o `DD/MM/AAAA`.
+  | Param          | Tipo   | Formato aceptado                     | Descripción                                   |
+  |----------------|--------|----------------------------------------|-------------------------------------------------|
+  | `especialidad` | string | Texto libre, sin distinguir tildes/mayúsculas (`Pediatria` matchea `Pediatría`) | Filtra por especialidad del turno |
+  | `fecha`        | string | `AAAA-MM-DD` o `DD/MM/AAAA`             | Filtra por fecha exacta del turno               |
+  | `medicoId`     | number | Entero positivo                         | Filtra por médico asignado                      |
 
-### Ejemplo de body para `POST /turnos`
+- **Ejemplos:**
+  ```
+  GET /turnos?especialidad=Pediatria&fecha=14/08/2026
+  GET /turnos?medicoId=1
+  ```
+- **Respuesta exitosa — `200 OK`**
+  ```json
+  [
+    {
+      "id": 1,
+      "paciente": "Julia Torres",
+      "documento": "30111222",
+      "especialidad": "Pediatría",
+      "fecha": "2026-09-01",
+      "hora": "10:30",
+      "confirmado": true,
+      "medicoId": 1
+    }
+  ]
+  ```
+- **Errores posibles:** `400` `VALIDATION_ERROR` (un query param con formato inválido, ej. `fecha=15-13-2026`).
 
-```json
-{
-  "paciente": "Julia Torres",
-  "documento": "30111222",
-  "especialidad": "Pediatría",
-  "fecha": "2026-09-01",
-  "hora": "10:30",
-  "confirmado": true,
-  "medicoId": 1
-}
-```
+#### `GET /turnos/:id`
+
+Obtiene un turno puntual por id.
+
+- **Path params:** `id` (entero positivo).
+- **Respuesta exitosa — `200 OK`**: el objeto `Turno` (mismo shape que arriba).
+- **Errores posibles:**
+  - `400` `ID_INVALIDO` — el `id` de la URL no es un entero positivo.
+  - `404` `TURNO_NO_ENCONTRADO` — no existe un turno con ese id.
+
+#### `POST /turnos`
+
+Crea un nuevo turno.
+
+- **Body (JSON):**
+  ```json
+  {
+    "paciente": "Julia Torres",
+    "documento": "30111222",
+    "especialidad": "Pediatría",
+    "fecha": "2026-09-01",
+    "hora": "10:30",
+    "confirmado": true,
+    "medicoId": 1
+  }
+  ```
+  | Campo           | Tipo               | Obligatorio | Notas                                                              |
+  |------------------|---------------------|-------------|----------------------------------------------------------------------|
+  | `paciente`        | string               | Sí          | Nombre del paciente (texto libre, se recorta espacios)                |
+  | `documento`        | string \| number      | Sí          | Se normaliza siempre a `string`                                        |
+  | `especialidad`      | string               | Sí          | Una de: `Clínica médica`, `Pediatría`, `Odontología`, `Nutrición`        |
+  | `fecha`              | string               | Sí          | ISO `AAAA-MM-DD`                                                          |
+  | `hora`                | string               | Sí          | 24hs `HH:mm`                                                                |
+  | `confirmado`           | boolean              | Sí          | —                                                                             |
+  | `observaciones`         | string               | No          | —                                                                               |
+  | `medicoId`               | number               | No          | Debe corresponder a un médico existente en `/medicos`                          |
+
+- **Respuesta exitosa — `201 Created`**: el `Turno` creado (con `id` asignado).
+- **Errores posibles:**
+  - `400` `VALIDATION_ERROR` — algún campo no cumple el schema de Zod (`details` trae el detalle por campo).
+  - `400` `MEDICO_INEXISTENTE` — se envió `medicoId` pero no existe ese médico.
+
+#### `PUT /turnos/:id`
+
+Actualiza parcialmente un turno (cualquier subconjunto de los campos de `POST`).
+
+- **Path params:** `id` (entero positivo).
+- **Body (JSON):** igual que `POST /turnos` pero con todos los campos opcionales. Ejemplo típico (confirmar un turno):
+  ```json
+  { "confirmado": true, "observaciones": "Confirmado telefónicamente" }
+  ```
+- **Respuesta exitosa — `200 OK`**: el `Turno` ya actualizado.
+- **Errores posibles:** `400` `VALIDATION_ERROR`, `400` `MEDICO_INEXISTENTE`, `400` `ID_INVALIDO`, `404` `TURNO_NO_ENCONTRADO`.
+
+#### `DELETE /turnos/:id`
+
+Elimina un turno. No admite body.
+
+- **Path params:** `id` (entero positivo).
+- **Respuesta exitosa — `204 No Content`** (sin body).
+- **Errores posibles:** `400` `ID_INVALIDO`, `404` `TURNO_NO_ENCONTRADO`.
 
 ### Médico
 
-| Método   | Ruta            | Descripción                  | Códigos posibles       |
-|----------|-----------------|-------------------------------|--------------------------|
-| `GET`    | `/medicos`        | Lista médicos (admite filtros)  | `200`, `400`, `500`        |
-| `GET`    | `/medicos/:id`     | Obtiene un médico por id          | `200`, `400`, `404`, `500` |
-| `POST`   | `/medicos`         | Registra un nuevo médico            | `201`, `400`, `500`        |
-| `PUT`    | `/medicos/:id`      | Actualiza (parcial) un médico        | `200`, `400`, `404`, `500` |
-| `DELETE` | `/medicos/:id`       | Da de baja un médico (sin body)        | `204`, `400`, `404`, `500` |
+#### `GET /medicos`
 
-**Filtros por query params:**
+Lista los médicos cargados.
 
-```
-GET /medicos?especialidad=Odontologia&disponible=true
-```
+- **Query params (todos opcionales):**
 
-### Ejemplo de body para `POST /medicos`
+  | Param          | Tipo    | Formato aceptado           | Descripción                          |
+  |----------------|---------|------------------------------|------------------------------------------|
+  | `especialidad` | string  | Sin distinguir tildes/mayúsculas | Filtra por especialidad del médico       |
+  | `disponible`   | boolean | `"true"` \| `"false"`         | Filtra por disponibilidad                  |
 
-```json
-{
-  "nombre": "Dra. Carla Núñez",
-  "especialidad": "Pediatría",
-  "matricula": "MP-99887",
-  "disponible": true
-}
-```
+- **Ejemplo:** `GET /medicos?especialidad=Odontologia&disponible=true`
+- **Respuesta exitosa — `200 OK`**
+  ```json
+  [
+    { "id": 1, "nombre": "Dra. Laura Fernández", "especialidad": "Clínica médica", "matricula": "MP-10234", "disponible": true }
+  ]
+  ```
+- **Errores posibles:** `400` `VALIDATION_ERROR` (query param con formato inválido, ej. `disponible=si`).
+
+#### `GET /medicos/:id`
+
+- **Path params:** `id` (entero positivo).
+- **Respuesta exitosa — `200 OK`**: el objeto `Medico`.
+- **Errores posibles:** `400` `ID_INVALIDO`, `404` `MEDICO_NO_ENCONTRADO`.
+
+#### `POST /medicos`
+
+- **Body (JSON):**
+  ```json
+  { "nombre": "Dra. Carla Núñez", "especialidad": "Pediatría", "matricula": "MP-99887", "disponible": true }
+  ```
+  | Campo          | Tipo    | Obligatorio | Notas                                                       |
+  |-----------------|---------|-------------|-----------------------------------------------------------------|
+  | `nombre`          | string  | Sí          | —                                                                 |
+  | `especialidad`     | string  | Sí          | Una de: `Clínica médica`, `Pediatría`, `Odontología`, `Nutrición`   |
+  | `matricula`         | string  | Sí          | —                                                                   |
+  | `disponible`         | boolean | Sí          | —                                                                     |
+
+- **Respuesta exitosa — `201 Created`**: el `Medico` creado (con `id` asignado).
+- **Errores posibles:** `400` `VALIDATION_ERROR`.
+
+#### `PUT /medicos/:id`
+
+- **Path params:** `id` (entero positivo).
+- **Body (JSON):** igual que `POST /medicos` pero con todos los campos opcionales, ej. `{ "disponible": false }`.
+- **Respuesta exitosa — `200 OK`**: el `Medico` actualizado.
+- **Errores posibles:** `400` `VALIDATION_ERROR`, `400` `ID_INVALIDO`, `404` `MEDICO_NO_ENCONTRADO`.
+
+#### `DELETE /medicos/:id`
+
+- **Path params:** `id` (entero positivo).
+- **Respuesta exitosa — `204 No Content`** (sin body).
+- **Errores posibles:** `400` `ID_INVALIDO`, `404` `MEDICO_NO_ENCONTRADO`.
+
+### Próximo módulo: Pacientes y Turnos Médicos (mockup)
+
+El diseño conceptual de los endpoints `POST /pacientes` y
+`POST /turnos-medicos` (todavía **no implementados**, solo propuestos)
+está documentado en [`pacientes-turnos.md`](./pacientes-turnos.md).
 
 ## Validaciones (Zod)
 
@@ -256,4 +444,7 @@ En `postman/turnos-red.postman_collection.json`:
 | CRUD del recurso Médico y vínculo con Turno | Claude (Anthropic) | "Agregá el CRUD completo de /medicos (misma arquitectura en capas que Turno) y vinculá cada turno a un médico mediante `medicoId`." | Modelo, service, controller y rutas de `medico`, más el campo `medicoId` en `Turno` y su validación de existencia. | *(completar tras revisar: por ejemplo, cambiar los campos del médico o la regla de "médico inexistente")*. |
 | Filtros por query params | Claude (Anthropic) | "Implementá filtros por especialidad/fecha/medicoId en GET /turnos y por especialidad/disponible en GET /medicos, sin agregar endpoints nuevos." | Lógica de filtrado en `turno.service.ts` y `medico.service.ts`, más `normalizarClave()` para comparar especialidades sin tildes. | *(completar tras revisar)*. |
 | Colección de Postman | Claude (Anthropic) | "Generá la colección de Postman (`turnos-red.postman_collection.json`) con variables de entorno, tests automáticos, casos Happy Path/Bad Request/Not Found y ejemplos guardados para Mock Server." | Colección con 19 requests entre `Turnos` y `Medicos`, variables dinámicas y ejemplos guardados. | *(completar tras correrla en tu Postman: capturas reales van en el documento de evidencia)*. |
+| Refactor a Clean Architecture (Actividad 3) | Claude (Anthropic) | "Migrá los controllers de Turno y Médico a funciones async con una variable `status` local, `throw`/`try-catch` explícito y `return` en cada respuesta; sumá un controller general para el Hello World y el 404." | `general.controller.ts`, reescritura de `turno.controller.ts` / `medico.controller.ts` y el helper `utils/responderError.ts`. | *(completar tras revisar: por ejemplo, los mensajes de cada `AppError` o cómo se arma `construirCuerpoError`)*. |
+| Documentación exhaustiva del README y mockup de Pacientes/Turnos Médicos (Actividad 4) | Claude (Anthropic) | "A partir de las rutas y controllers reales del proyecto, documentá cada endpoint en el README (params, body, respuestas y códigos de estado) y armá `pacientes-turnos.md` con el diseño conceptual (interfaces TS + endpoints propuestos) del módulo de Pacientes y Turnos Médicos, sin implementarlo todavía." | Sección "Endpoints" ampliada del README y el archivo `pacientes-turnos.md` completo. | *(completar tras revisar: por ejemplo, los campos elegidos para `Paciente` o el path de los endpoints propuestos)*. |
+
 
